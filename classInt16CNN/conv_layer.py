@@ -6,7 +6,7 @@ from scipy.ndimage import correlate, convolve
 
 class conv_strato:
     def __init__(self, i_shape, conv_size, conv_num, rand_G, maxpool=1,\
-    peso_log2=0, modo_log2="arrot", reNu_t=0, shift=16, precisione=20):
+    peso_log2=0, modo_log2="arrot", reNu_t=0, uno=16, rallent_max=15):
         self.name = 'conv'
         if not ((type(i_shape) is tuple) and (len(i_shape)==3)):
             print('i_shape должен быть кортеж длиной 3')       
@@ -17,11 +17,12 @@ class conv_strato:
         self.peso_log2 = peso_log2
         self.modo_log2 = modo_log2
         self.reNu_t = reNu_t
-        self.shift = shift
-        self.shift_a = 1<<(shift-1) if shift>0 else 0
-        self.precisione = precisione
+        self.uno = uno
+        self.uno_a = 1<<(uno-1)
+        self.rallent_max = rallent_max
+        self.precisione = self.uno + self.rallent_max
         self.precisione_a = 1<<(self.precisione-1)
-        self.w_factor = 10
+        self.dw_lshift = 0
         
         self.prec_num = i_shape[0]
         self.h_dir = i_shape[2]
@@ -31,12 +32,13 @@ class conv_strato:
             .format(self.h_dopoConv, maxpool))   
         self.h_rit = self.h_dopoConv//maxpool
         
-        self.w = np.int64(256*(rand_G.random((conv_num,\
-        self.prec_num, conv_size, conv_size), dtype=np.float32)-0.5))
+        self.w = np.int64((1<<self.uno)*(rand_G.random((conv_num,\
+        self.prec_num, conv_size, conv_size), dtype=np.float64)-0.5))
+        # self.w = np.int64(256*(rand_G.random((conv_num,\
+        # self.prec_num, conv_size, conv_size), dtype=np.float64)-0.5))*256
 
-        self.w_lungo = self.w << self.precisione
+        self.dw = self.w << self.precisione
         self.w_log2 = np.empty((conv_num, self.prec_num, conv_size, conv_size), dtype=np.int64)
-        self.dw = np.zeros((conv_num, self.prec_num, conv_size, conv_size), dtype=np.int64)
         self.img_dir = np.empty(i_shape, dtype=np.int64)
         
         if (maxpool>1) or (reNu_t > 0):
@@ -64,6 +66,11 @@ class conv_strato:
 
     def __str__(self):
         return 'conv_strato'
+    
+    def rallent_wr(self, i_rallent):
+        if i_rallent > self.rallent_max:
+            i_rallent = self.rallent_max
+        self.dw_lshift = self.rallent_max - i_rallent
     
     def arrot2log(self, a):
         if self.modo_log2=="tronc":
@@ -101,12 +108,9 @@ class conv_strato:
         for i in range(self.conv_num):
             img_convUno.fill(0)
             for k in range(self.prec_num):
-                # img_convUno += ((correlate(img_in[k], self.w_log2[i,k],\
-                # mode='constant',cval=0,origin=[-decrease,-decrease])\
-                # +32768)>> 16)
-                img_convUno += ((correlate(img_in[k], self.w_log2[i,k],\
-                mode='constant',cval=0,origin=[-decrease,-decrease])\
-                + self.shift_a)>> self.shift)
+                img_convUno += correlate(img_in[k], self.w_log2[i,k],\
+                mode='constant',cval=0,origin=[-decrease,-decrease])
+            img_convUno[:] = (img_convUno + self.uno_a) >> self.uno
             
             img_locale = img_out[i]
             fattore_loc = self.fattore_rit[i]
@@ -132,10 +136,10 @@ class conv_strato:
         for i in range(self.conv_num):
             img_convUno.fill(0)
             for k in range(self.prec_num):
-                img_convUno += ((correlate(img_in[k], self.w_log2[i,k],\
-                mode='constant',cval=0,origin=[-decrease,-decrease])\
-                + self.shift_a) >> self.shift)
-
+                img_convUno += correlate(img_in[k], self.w_log2[i,k],\
+                mode='constant',cval=0,origin=[-decrease,-decrease])
+            img_convUno[:] = (img_convUno+ self.uno_a)>> self.uno
+                
             self.fattore_rit[i] = self.np_reNu_mult(img_convUno[:self.h_rit,\
             :self.h_rit])
             img_out[i] = self.np_reNu(img_convUno[:self.h_rit,:self.h_rit])
@@ -146,9 +150,9 @@ class conv_strato:
         for i in range(self.conv_num):
             img_convUno.fill(0)
             for k in range(self.prec_num):
-                img_convUno += ((correlate(img_in[k], self.w_log2[i,k],\
-                mode='constant',cval=0,origin=[-decrease,-decrease])\
-                + self.shift_a) >> self.shift)
+                img_convUno += correlate(img_in[k], self.w_log2[i,k],\
+                mode='constant',cval=0,origin=[-decrease,-decrease])
+            img_convUno[:] = (img_convUno+ self.uno_a)>> self.uno
                 
             img_locale = img_out[i]
             fattore_loc = self.fattore_rit[i]
@@ -174,30 +178,32 @@ class conv_strato:
         for i in range(self.conv_num):
             img_convUno.fill(0)
             for k in range(self.prec_num):
-                img_convUno += ((correlate(img_in[k], self.w_log2[i,k],\
-                mode='constant',cval=0,origin=[-decrease,-decrease])\
-                + self.shift_a) >> self.shift)
+                img_convUno += correlate(img_in[k], self.w_log2[i,k],\
+                mode='constant',cval=0,origin=[-decrease,-decrease])
 
-            img_out[i] = img_convUno[:self.h_rit,:self.h_rit]
+            img_out[i] = (img_convUno[:self.h_rit,:self.h_rit]\
+            + self.uno_a)>> self.uno
  
-    def ritardo(self, err_in, err_out):
+    def ritorno(self, err_in, err_out):
         if self.maxpool>1:
-            self.ritardo_pool_attiv(self.img_dir, err_in, err_out)
+            self.ritorno_pool_attiv(self.img_dir, err_in, err_out)
         elif self.reNu_t>0:
-            self.ritardo_attiv(self.img_dir, err_in, err_out)
+            self.ritorno_attiv(self.img_dir, err_in, err_out)
         else:
-            self.ritardo_base(self.img_dir, err_in, err_out) 
+            self.ritorno_base(self.img_dir, err_in, err_out) 
         
-    def ritardo_pool_attiv(self, img_in, err_in, err_out):
+    def ritorno_pool_attiv(self, img_in, err_in, err_out):
         fattore_rit_int = np.empty((self.conv_num, self.h_dopoConv, self.h_dopoConv), dtype=np.int64)
         for i in range(self.conv_num):
             e_lungo = np.repeat(err_in[i], self.maxpool, axis=1)
             e_lungo = np.repeat(e_lungo, self.maxpool, axis=0)
             fattore_rit_int[i] = e_lungo*self.fattore_rit[i]
             for k in range(self.prec_num):
-                self.dw[i,k] += correlate(img_in[k], fattore_rit_int[i],\
+                dw_curr = correlate(img_in[k], fattore_rit_int[i],\
                 mode='constant', cval=0, origin=[-self.h_rit,-self.h_rit])\
                 [:self.conv_size, :self.conv_size]
+                self.dw[i,k] += dw_curr << self.dw_lshift
+
         
         e_lungo = np.zeros((self.h_dir, self.h_dir), dtype=np.int64)
         back = np.empty((self.h_dir, self.h_dir), dtype=np.int64)
@@ -206,24 +212,20 @@ class conv_strato:
             back.fill(0)
             for k in range(self.conv_num):
                 e_lungo[:self.h_dopoConv,:self.h_dopoConv] = fattore_rit_int[k]
-                # back += np.int64(self.np_piu1(convolve(e_lungo, self.w_log2[k,i],\
-                # mode='constant',cval=0, origin=[-decrease,-decrease])\
-                # +self.shift_b))>> self.shift
-                conv_uno = convolve(e_lungo, self.w_log2[k,i], mode='constant',\
+                back += convolve(e_lungo, self.w_log2[k,i], mode='constant',\
                 cval=0, origin=[-decrease,-decrease])
-                # перед суммой делаем округление
-                back += (conv_uno+(np.sign(conv_uno)>>1)+self.shift_a)>>self.shift
-
-            err_out[i] = back
+            # округляем после всех сумм
+            err_out[i] = (back + (np.sign(back)>>1) +self.uno_a)>>self.uno
             
-    def ritardo_attiv(self, img_in, err_in, err_out):
+    def ritorno_attiv(self, img_in, err_in, err_out):
         fattore_rit_int = np.empty((self.conv_num, self.h_dopoConv, self.h_dopoConv), dtype=np.int64)
         for i in range(self.conv_num):
             fattore_rit_int[i] = err_in[i]*self.fattore_rit[i]
             for k in range(self.prec_num):
-                self.dw[i,k] += correlate(img_in[k], fattore_rit_int[i],\
+                dw_curr = correlate(img_in[k], fattore_rit_int[i],\
                 mode='constant', cval=0, origin=[-self.h_rit,-self.h_rit])\
                 [:self.conv_size, :self.conv_size]
+                self.dw[i,k] += dw_curr<<self.dw_lshift
         
         e_lungo = np.zeros((self.h_dir, self.h_dir), dtype=np.int64)
         back = np.empty((self.h_dir, self.h_dir), dtype=np.int64)
@@ -232,21 +234,20 @@ class conv_strato:
             back.fill(0)
             for k in range(self.conv_num):
                 e_lungo[:self.h_dopoConv,:self.h_dopoConv] = fattore_rit_int[k]
-                conv_uno = convolve(e_lungo, self.w_log2[k,i], mode='constant',\
+                back += convolve(e_lungo, self.w_log2[k,i], mode='constant',\
                 cval=0, origin=[-decrease,-decrease])
-                # перед суммой делаем округление
-                back += (conv_uno+(np.sign(conv_uno)>>1)+self.shift_a)>>self.shift
-
-            err_out[i] = back
+            # округляем после всех сумм
+            err_out[i] = (back + (np.sign(back)>>1) +self.uno_a)>>self.uno
           
-    def ritardo_base(self, img_in, err_in, err_out):
+    def ritorno_base(self, img_in, err_in, err_out):
         for i in range(self.conv_num):
             back = err_in[i]
             for k in range(self.prec_num):
-                self.dw[i,k] += correlate(img_in[k], back,\
+                dw_curr = correlate(img_in[k], back,\
                 mode='constant', cval=0, origin=[-self.h_rit,-self.h_rit])\
                 [:self.conv_size, :self.conv_size]
-        
+                self.dw[i,k] += dw_curr<<self.dw_lshift
+
         e_lungo = np.zeros((self.h_dir, self.h_dir), dtype=np.int64)
         back = np.empty((self.h_dir, self.h_dir), dtype=np.int64)
         decrease = self.conv_size//2
@@ -254,33 +255,23 @@ class conv_strato:
             back.fill(0)
             for k in range(self.conv_num):
                 e_lungo[:self.h_dopoConv,:self.h_dopoConv] = err_in[k]
-                conv_uno = convolve(e_lungo, self.w_log2[k,i],\
+                back += convolve(e_lungo, self.w_log2[k,i],\
                 mode='constant', cval=0, origin=[-decrease,-decrease])
-                # перед суммой делаем округление
-                back += (conv_uno+(np.sign(conv_uno)>>1)+self.shift_a)>>self.shift
-            err_out[i] = back
+            # округляем после всех сумм
+            err_out[i] = (back + (np.sign(back)>>1) +self.uno_a)>>self.uno
         
     def aggiornamento(self):
-        r_shift = self.w_factor + self.shift - self.precisione
-        if r_shift>0:
-            r_shift_a = 1<<(r_shift-1)
-            self.w_lungo += (self.dw+(np.sign(self.dw)>>1)+r_shift_a) >> r_shift
-        elif r_shift<0:
-            r_shift = -r_shift
-            self.w_lungo += self.dw << r_shift
-        else:
-            self.w_lungo += self.dw
-
-        self.w[:] = (self.w_lungo + self.precisione_a)>> self.precisione
+        self.w[:] = (self.dw + self.precisione_a)>> self.precisione
         self.w_log2[:] = self.arrot2log(self.w) if self.peso_log2 else self.w
-        self.dw.fill(0)
         
     def w_carico(self, w_nuovo):
         self.w[:] = w_nuovo
-        self.w_lungo[:] = self.w << self.precisione
+        self.dw[:] = self.w << self.precisione
         self.w_log2[:] = self.arrot2log(self.w) if self.peso_log2 else self.w
         
-    def matrmax(self, non_abs=0, numero=0):
+    def matrmax(self, non_abs=0, numero=0, solo_st_bits=1):
+        if solo_st_bits:
+            self.dw[:] = self.w << self.precisione
         ix = np.argmax(self.w) if non_abs else np.argmax(np.abs(self.w))
         dev0 = self.prec_num * self.conv_size * self.conv_size
         ix0 = ix//dev0

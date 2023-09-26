@@ -226,7 +226,7 @@ end
 /////////////////////////////////////////////////////////// 
 //       нейросеть
 
-reti_neurali_base_0828 u_cnn(
+reti_neurali_base_0920 u_cnn(
 
     .clk                    (clk), 
     .i_rst_g                (rst_rete[0]),

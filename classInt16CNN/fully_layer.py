@@ -6,7 +6,7 @@ from math import sqrt as math_sqrt
 
 class fully_strato:
     def __init__(self, i_shape, o_shape, rand_G,\
-    peso_log2=0, modo_log2="arrot", reNu_t=0, shift=16, precisione=20):
+    peso_log2=0, modo_log2="arrot", reNu_t=0, uno=16, precisione=20):
         self.name = 'fully'
         if not (type(i_shape) is tuple):
             print('i_shape должен быть кортеж')
@@ -17,26 +17,31 @@ class fully_strato:
         self.peso_log2 = peso_log2
         self.modo_log2 = modo_log2
         self.reNu_t = reNu_t
-        self.shift = shift
-        self.shift_a = 1<<(shift-1)
-        self.precisione = precisione
+        self.uno = uno
+        self.uno_a = 1<<(uno-1)
+        self.precisione = precisione if precisione>self.uno else self.uno
         self.precisione_a = 1<<(self.precisione-1)
-        self.w_factor = 10
         self.i_lung = 1
         self.o_lung = 1
         self.make_lungezza()
         self.shape = (self.i_lung, self.o_lung)
 
-        self.w = np.int64(256*(rand_G.random(self.shape, dtype=np.float32)\
-        -0.5)*math_sqrt(2/self.i_lung))
-
-        self.w_lungo = self.w << self.precisione
+        noZero = lambda a: 1.0 if 0<=a<1.0 else (-1.0 if -1.0<a<0 else a)
+        np_noZero = np.frompyfunc(noZero, 1, 1)
+        
+        self.w = np.int64(np_noZero((1<<self.uno)*(rand_G.random(self.shape,\
+        dtype=np.float64)-0.5)*math_sqrt(2/self.i_lung)))
+        
+        self.dw = self.w << self.precisione
         self.w_log2 = np.empty(self.shape, dtype=np.int64)
-        self.dw = np.zeros(self.shape, dtype=np.int64)
         self.img_dir = np.empty((1, self.i_lung), dtype=np.int64)
         
+        self.rallent_a = 0
+        self.dw_rshift = 0
+        self.dw_lshift = 0
+        
         if reNu_t:
-            self.fattore_rit = np.empty((1, self.o_lung), dtype=np.float32)
+            self.fattore_rit = np.empty((1, self.o_lung), dtype=np.float64)
         
         if reNu_t==1:
             self.reNu = lambda a: a if a>0 else a*0.0625
@@ -60,6 +65,21 @@ class fully_strato:
         
     def __str__(self):
         return 'fully_strato'
+        
+    def rallent_wr(self, i_rallent):
+        rallentamente = i_rallent+self.uno
+        s="rallentamente = "+str(i_rallent)+", precisione = "+str(self.precisione)
+        if rallentamente > self.precisione:
+            self.dw_rshift = rallentamente - self.precisione
+            self.rallent_a = 1<<(self.dw_rshift-1)
+            self.dw_lshift = 0
+            s+=", r_shift = "+str(self.dw_rshift)
+        else:
+            self.dw_rshift = 0
+            self.rallent_a = 0
+            self.dw_lshift = self.precisione - rallentamente
+            s+=", l_shift = "+str(self.dw_lshift)
+        # print(s)
         
     def arrot2log(self, a):
         if self.modo_log2=="tronc":
@@ -89,47 +109,46 @@ class fully_strato:
             
         if self.reNu_t:
             # data_dot = (np.dot(self.img_dir, self.w_log2)+32768)>>16
-            data_dot = (np.dot(self.img_dir, self.w_log2)+self.shift_a)\
-            >> self.shift
+            data_dot = (np.dot(self.img_dir, self.w_log2)+self.uno_a)\
+            >> self.uno
             self.fattore_rit[:] = self.np_reNu_mult(data_dot)
             img_out[:] = self.np_reNu(data_dot).reshape(self.o_shape)
         else:
-            img_out[:] = ((np.dot(self.img_dir, self.w_log2)+self.shift_a)\
-            >> self.shift).reshape(self.o_shape)
+            img_out[:] = ((np.dot(self.img_dir, self.w_log2)+self.uno_a)\
+            >> self.uno).reshape(self.o_shape)
 
-    def ritardo(self, err_in, err_out):
+    def ritorno(self, err_in, err_out):
         err_in_flat = err_in.reshape(1, self.o_lung)  
         if self.reNu_t:
             err_in_flat *= self.fattore_rit
             
-        self.dw += np.dot(self.img_dir.T, err_in_flat)
+        dw_curr = np.dot(self.img_dir.T, err_in_flat)
+        if self.dw_rshift:
+            self.dw += (dw_curr+(np.sign(dw_curr)>>1)+self.rallent_a)>>self.dw_rshift
+        elif self.dw_lshift:
+            self.dw += dw_curr<<self.dw_lshift
+        else:
+            self.dw += dw_curr
         
         err = np.dot(err_in_flat, self.w_log2.T)
         # далее округляем
-        err_out[:] = ((err + (np.sign(err)>>1) + self.shift_a)\
-        >> self.shift).reshape(self.i_shape)
+        err_out[:] = ((err +(np.sign(err)>>1)+ self.uno_a)>> self.uno)\
+        .reshape(self.i_shape)
+        # err_out[:] = ((err + self.uno_a)\
+        # >> self.uno).reshape(self.i_shape)
         
     def aggiornamento(self):
-        r_shift = self.w_factor + self.shift - self.precisione
-        if r_shift>0:
-            r_shift_a = 1<<(r_shift-1)
-            self.w_lungo += (self.dw+(np.sign(self.dw)>>1)+r_shift_a) >> r_shift
-        elif r_shift<0:
-            r_shift = -r_shift
-            self.w_lungo += self.dw << r_shift
-        else:
-            self.w_lungo += self.dw
-
-        self.w[:] = (self.w_lungo + self.precisione_a)>> self.precisione
+        self.w[:] = (self.dw + self.precisione_a)>> self.precisione
         self.w_log2[:] = self.arrot2log(self.w) if self.peso_log2 else self.w
-        self.dw.fill(0)
         
     def w_carico(self, w_nuovo):
         self.w[:] = w_nuovo
-        self.w_lungo[:] = self.w << self.precisione
+        self.dw[:] = self.w << self.precisione
         self.w_log2[:] = self.arrot2log(self.w) if self.peso_log2 else self.w
 
-    def matrmax(self, non_abs=0, numero=0):
+    def matrmax(self, non_abs=0, numero=0, solo_st_bits=1):
+        if solo_st_bits:
+            self.dw[:] = self.w << self.precisione
         ix = np.argmax(self.w) if non_abs else np.argmax(np.abs(self.w))
         ix0 = ix//self.o_lung
         if numero:
@@ -138,4 +157,22 @@ class fully_strato:
         
 if __name__ == '__main__':
     print('fully')
+    # import numpy as np
+    # import timeit
+    
+    # shape = 3000
+    # a = np.arange(shape, dtype=np.int64)
+    # a -= 1500
+    # b = np.arange(shape, dtype=np.int64)
+    # b -= 1500
+
+    # s = 'ca = np.sign(a)'   
+    # ti = timeit.timeit(s, number=5000, globals=globals())
+    # print("ti(a) =", ti)
+    
+    # s = 'cb = np.clip(b, 0, 1)'   
+    # ti = timeit.timeit(s, number=5000, globals=globals())
+    # print("ti(b) =", ti)
+    
+    
     

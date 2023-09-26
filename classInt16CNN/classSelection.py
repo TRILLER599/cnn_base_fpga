@@ -110,4 +110,4 @@ class classSelection:
         
 if __name__ == '__main__':
     print('classSelection')
-    # mnist = loadmat("../Database/mnist-original.mat") 
+ 
