@@ -65,6 +65,8 @@ class classGestioneFunzionale:
         self.cmd_list = np.zeros((16,), dtype=np.uint16)
         self.cmd_counter = 0
         
+        self.percento_max = (0, 96.0)
+        
     def __str__(self):
         return 'classGestioneFunzionale'
 
@@ -328,8 +330,14 @@ class classGestioneFunzionale:
                     'не посылала сигналы true/false')
                     return -1;
                 else:
-                    fprint('C{}: {} _ {}'.format(self.gia_fatto+i,\
-                    round(self.true_false[0]*100/tf_num, 2), tf_num))
+                    percento = round(self.true_false[0]*100/tf_num, 2)
+                    if percento > self.percento_max[1]:
+                        fprint('C{}: {} _ {} _ max'\
+                        .format(self.gia_fatto+i, percento, tf_num))
+                        self.percento_max = (self.gia_fatto+i, percento)
+                    else:
+                        fprint('C{}: {} _ {}'\
+                        .format(self.gia_fatto+i, percento, tf_num))
                 self.true_false.fill(0)
             # печать весов    
             if peso_print:

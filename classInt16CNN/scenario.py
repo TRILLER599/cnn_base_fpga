@@ -22,7 +22,7 @@ if __name__ == '__main__':
     LEV_1 = 256*4
     SLOW = 12
     FPGA = 1 # True==1 Fase==0
-    cl_CNN = classInt16CNN(5,4,3,16,16,len(d_list),H=28,mini_b=20,slowdown=SLOW,y_lev1=LEV_1)
+    cl_CNN = classInt16CNN(5,4,3,16,16,len(d_list),H=28,mini_b=40,slowdown=SLOW,y_lev1=LEV_1)
     funz = classGestioneFunzionale(cl_CNN, mnist_data, cl_Sel, len(d_list), rand_G, FPGA)
     
     # funz.MINIB = 40
@@ -38,15 +38,15 @@ if __name__ == '__main__':
         print("отправка завершения 0")
         funz.end()
         sys_exit()
-    # funz.peso_0_print()
+    funz.peso_0_print()
     
     # if funz.epocha(3, peso_print=1):
         # funz.end()
         # print("отправка завершения 1")
         # sys_exit()
     # for i in range(6):
-    for i in range(5):
-        res = funz.epocha(1, peso_print=0)
+    for i in range(20):
+        res = funz.epocha(10, peso_print=0)
         if res<0:
             print("отправка завершения 1")
             funz.end()
@@ -68,14 +68,20 @@ if __name__ == '__main__':
             continue
         
         funz.ricaricare_pesi() 
-        funz.peso_print(2) # 0-не печатает, 1-печатает кратко, 2-полная статистика
+        funz.peso_print(1) # 0-не печатает, 1-печатает кратко, 2-полная статистика
         # funz.peso_0_print()
         if funz.rallentamente > 10:
             funz.rallentamente -= 1
             
+            
+            
     # funz.ricaricare_pesi() 
-    # funz.peso_print(2)
+    funz.peso_0_print()
+    funz.peso_print(2)
     # funz.ricaricare_pesi(True) 
+    
+    print('C{}: {} _ MAX'.format(funz.percento_max[0], funz.percento_max[1]))
+    
     funz.end()
     # funz.sock_udp.close()
     
