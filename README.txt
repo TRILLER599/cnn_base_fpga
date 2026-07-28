@@ -16,7 +16,8 @@ the FPGA side, and its client part for PC is implemented in Python.
     The same neural network is implemented in NumPy for running computations 
 on the processor and validating the correctness of the FPGA algorithm.
 
-    I am NOT a professional programmer, but an FPGA developer, so please bear with me:)
+
+    The main elements of the repository.
 
     1. Folder "classInt16CNN"
     Inside this folder, there is a convolutional neural network implemented in 
@@ -58,7 +59,7 @@ reti_neurali_base_0929.sv (     - neural network top level file
 network card! The training management protocol uses UDP packets with a maximum 
 payload of 8192 bytes. The FPGA's IP address is set to 192.168.19.128, so the 
 network card should be in the 19th subnet. Only responses to ARP requests and 
-training commands are implemented - I was too lazy to bother with more for now.
+training commands are implemented.
 By the time training begins, the board should be programmed, and the IP address 
 should correspond to MAC=33:11:22:00:AA:BB. I hope to find time to add a response 
 to ping.
